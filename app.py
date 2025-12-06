@@ -15,6 +15,30 @@ from config import (
 from prompt_builder import build_design_prompt, get_prompt_summary, build_modification_prompt
 from gemini_service import GeminiDesignService, test_api_connection, GENAI_AVAILABLE
 
+# Add these imports at the top of app.py
+import urllib.request
+import json
+
+def get_user_region():
+    """Get user's region for debugging."""
+    try:
+        url = "https://ipapi.co/json/"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            return {
+                "country": data.get("country_name", "Unknown"),
+                "country_code": data.get("country_code", "??"),
+                "region": data.get("region", "Unknown"),
+                "city": data.get("city", "Unknown"),
+                "ip": data.get("ip", "Unknown"),
+            }
+    except Exception as e:
+        return {
+            "country": "Could not detect",
+            "country_code": "??",
+            "error": str(e)
+        }
 # ============== PAGE CONFIG ==============
 st.set_page_config(
     page_title="AI Clothes Designer",
@@ -105,17 +129,56 @@ def render_sidebar():
         if api_key != st.session_state.api_key:
             st.session_state.api_key = api_key
         
-        # Test button
-        if st.button("🔗 Test Connection", use_container_width=True):
-            if api_key:
-                with st.spinner("Testing connection..."):
-                    success, message = test_api_connection(api_key)
-                if success:
-                    st.success(message)
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Test button
+            if st.button("🔗 Test API", use_container_width=True):
+                if api_key:
+                    with st.spinner("Testing..."):
+                        success, message = test_api_connection(api_key)
+                    if success:
+                        st.success("Connected!")
+                        st.session_state.api_test_result = message
+                    else:
+                        st.error("Failed!")
+                        st.session_state.api_test_result = message
                 else:
-                    st.error(message)
-            else:
-                st.warning("Please enter an API key first.")
+                    st.warning("Enter key first")
+        
+        with col2:
+            # Region check button
+            if st.button("🌍 Check Region", use_container_width=True):
+                with st.spinner("Detecting..."):
+                    region = get_user_region()
+                    st.session_state.region_info = region
+        
+        # Show API test result
+        if 'api_test_result' in st.session_state:
+            with st.expander("📋 API Test Result", expanded=False):
+                st.markdown(st.session_state.api_test_result)
+        
+        # Show region info
+        if 'region_info' in st.session_state:
+            region = st.session_state.region_info
+            with st.expander("🌍 Your Region", expanded=True):
+                st.markdown(f"""
+                **Country:** {region.get('country', 'Unknown')} ({region.get('country_code', '??')})
+                
+                **Region:** {region.get('region', 'Unknown')}
+                
+                **City:** {region.get('city', 'Unknown')}
+                """)
+                
+                # Show warning for restricted countries
+                restricted_countries = ['IN', 'CN', 'RU', 'IR', 'KP', 'CU', 'SY']
+                if region.get('country_code') in restricted_countries:
+                    st.warning("⚠️ Image generation may be restricted in your region.")
+                    st.markdown("""
+                    **Solutions:**
+                    - Use VPN (US/UK/EU)
+                    - Try alternative APIs
+                    """)
         
         st.markdown("---")
         
@@ -123,11 +186,29 @@ def render_sidebar():
         st.markdown("### 📖 How to Use")
         st.markdown("""
         1. Enter your Gemini API key
-        2. Select clothing options
-        3. Add custom details (optional)
+        2. Test connection & check region
+        3. Select clothing options
         4. Click **Generate Design**
         5. Modify if needed!
         """)
+        
+        st.markdown("---")
+        
+        # Alternative APIs section
+        with st.expander("🔄 Alternative APIs"):
+            st.markdown("""
+            If Gemini doesn't work in your region:
+            
+            **Free Options:**
+            - [Leonardo.AI](https://leonardo.ai/)
+            - [Playground AI](https://playground.ai/)
+            - [Bing Create](https://www.bing.com/create)
+            
+            **Paid Options:**
+            - [Stability AI](https://stability.ai/)
+            - [OpenAI DALL-E](https://openai.com/dall-e)
+            - [Midjourney](https://midjourney.com/)
+            """)
         
         st.markdown("---")
         
@@ -148,11 +229,11 @@ def render_sidebar():
         
         # Clear button
         if st.button("🗑️ Clear All", use_container_width=True):
-            st.session_state.generated_image = None
-            st.session_state.current_prompt = ""
-            st.session_state.selections = {}
+            for key in ['generated_image', 'current_prompt', 'selections', 
+                       'api_test_result', 'region_info']:
+                if key in st.session_state:
+                    st.session_state[key] = None if key != 'selections' else {}
             st.rerun()
-
 
 # ============== DESIGN FORM ==============
 def render_design_form():
